@@ -66,6 +66,25 @@ class DirectMethodHandle extends MethodHandle {
         this.member = member;
     }
 
+    // Constructors and factory methods in this class *must* be package scoped or private.
+    private DirectMethodHandle(MethodType mtype, LambdaForm form, MemberName member, byte refKind) {
+        super(mtype, form);
+        if (!member.isResolved())  throw new InternalError();
+
+        if (member.getDeclaringClass().isInterface() &&
+                member.isMethod() && !member.isAbstract()) {
+            // Check for corner case: invokeinterface of Object method
+            MemberName m = new MemberName(Object.class, member.getName(), member.getMethodType(), refKind);
+            m = MemberName.getFactory().resolveOrNull(m.getReferenceKind(), m, null);
+            if (m != null && m.isPublic()) {
+                assert(member.getReferenceKind() == m.getReferenceKind());  // else this.form is wrong
+                member = m;
+            }
+        }
+
+        this.member = member;
+    }
+
     // Factory methods:
     static DirectMethodHandle make(byte refKind, Class<?> receiver, MemberName member) {
         MethodType mtype = member.getMethodOrFieldType();
@@ -87,7 +106,7 @@ class DirectMethodHandle extends MethodHandle {
                 }
                 default: {
                     LambdaForm lform = preparedLambdaForm(member);
-                    return new DirectMethodHandle(mtype, lform, member);
+                    return new DirectMethodHandle(mtype, lform, member, refKind);
                 }
             }
         } else {
