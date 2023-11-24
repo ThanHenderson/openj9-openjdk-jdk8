@@ -545,6 +545,8 @@ public class MethodHandles {
          */
         public static final int PACKAGE = Modifier.STATIC;
 
+        static final int VARARGS = 0x80;
+
         private static final int ALL_MODES = (PUBLIC | PRIVATE | PROTECTED | PACKAGE);
         private static final int TRUSTED   = -1;
 
@@ -591,6 +593,10 @@ public class MethodHandles {
          */
         public int lookupModes() {
             return allowedModes & ALL_MODES;
+        }
+
+        static boolean isVarargs(int modifiers) {
+            return (modifiers & VARARGS) != 0;
         }
 
         /** Embody the current class (the lookupClass) as a lookup class
@@ -1183,6 +1189,33 @@ return mh1;
                 MethodHandle mh = unreflectForMH(m);
                 if (mh != null)  return mh;
             }
+            Class<?> declaringClass = m.getDeclaringClass();
+            int methodModifiers = m.getModifiers();
+            if (declaringClass.isInterface() &&
+                    !(Modifier.isStatic(methodModifiers)) &&
+                    Modifier.isPrivate(methodModifiers)) {
+                MethodHandle handle;
+                MethodType type = MethodType.methodType(m.getReturnType(), m.getParameterTypes());
+                type = type.insertParameterTypes(0, declaringClass);
+
+                MethodHandle thrower =throwException(type.returnType(), AbstractMethodError.class);
+                MethodHandle constructor;
+                try {
+                    constructor = IMPL_LOOKUP.findConstructor(AbstractMethodError.class,
+                            MethodType.methodType(void.class));
+                } catch (IllegalAccessException | NoSuchMethodException e) {
+                    throw new InternalError("Unable to find AbstractMethodError.<init>()"); //$NON-NLS-1$
+                }
+                handle = foldArguments(thrower, constructor);
+                handle = dropArguments(handle, 0, type.parameterList());
+
+                if (isVarargs(methodModifiers)) {
+                    Class<?> lastClass = handle.type().lastParameterType();
+                    handle = handle.asVarargsCollector(lastClass);
+                }
+                return handle;
+            }
+
             MemberName method = new MemberName(m);
             byte refKind = method.getReferenceKind();
             if (refKind == REF_invokeSpecial)
